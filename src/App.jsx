@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   LayoutDashboard, 
   Folder, 
@@ -15,8 +15,69 @@ import {
   MoreHorizontal
 } from 'lucide-react';
 
+const TASKS_STORAGE_KEY = 'tasksbhulejai.tasks';
+const PROJECTS_STORAGE_KEY = 'tasksbhulejai.projects';
+
+const initialTasks = [
+  {
+    id: 1,
+    title: 'Finalize Q3 Marketing Strategy',
+    time: '11:30 AM',
+    project: 'Marketing Team',
+    priority: 'High',
+    completed: false
+  },
+  {
+    id: 2,
+    title: 'Review Design System Updates',
+    time: '2:00 PM',
+    project: 'Design Squad',
+    priority: 'Normal',
+    completed: false
+  },
+  {
+    id: 3,
+    title: 'Morning Standup Meeting',
+    time: '9:15 AM',
+    project: 'General',
+    priority: 'Normal',
+    completed: true
+  }
+];
+
+const initialProjects = ['Marketing Team', 'Design Squad', 'General'];
+
+function getPriorityTone(priority) {
+  if (priority === 'High') {
+    return 'bg-red-50 text-red-600';
+  }
+
+  return 'bg-slate-100 text-slate-600';
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('Dashboard');
+  const [tasks, setTasks] = useState(initialTasks);
+  const [projects, setProjects] = useState(initialProjects);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAllTasks, setShowAllTasks] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskProject, setNewTaskProject] = useState(initialProjects[0]);
+  const [newTaskPriority, setNewTaskPriority] = useState('Normal');
+  const [taskFormMessage, setTaskFormMessage] = useState('');
+  const [isProjectCreatorOpen, setIsProjectCreatorOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [projectFormMessage, setProjectFormMessage] = useState('');
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(true);
+  const [autoArchiveDone, setAutoArchiveDone] = useState(false);
+  const [highContrast, setHighContrast] = useState(false);
+  const [alerts, setAlerts] = useState([
+    { id: 1, text: 'Sprint planning starts at 4:00 PM.', read: false },
+    { id: 2, text: 'Two tasks are still pending for today.', read: false }
+  ]);
 
   const navItems = [
     { name: 'Dashboard', icon: LayoutDashboard },
@@ -28,14 +89,180 @@ function App() {
   const chartData = [40, 60, 100, 80, 50, 20];
   const chartLabels = ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM'];
 
-  const todayTasks = [
-    { title: 'Finalize Q3 Marketing Strategy', time: '11:30 AM', project: 'Marketing Team', priority: 'High', color: 'bg-red-50 text-red-600', checked: false },
-    { title: 'Review Design System Updates', time: '2:00 PM', project: 'Design Squad', priority: 'Medium', color: 'bg-slate-100 text-slate-600', checked: false },
-    { title: 'Morning Standup Meeting', time: '9:15 AM', project: 'General', checked: true }
-  ];
+  useEffect(() => {
+    try {
+      const storedTasks = localStorage.getItem(TASKS_STORAGE_KEY);
+      const storedProjects = localStorage.getItem(PROJECTS_STORAGE_KEY);
+
+      if (storedTasks) {
+        const parsedTasks = JSON.parse(storedTasks);
+        if (Array.isArray(parsedTasks) && parsedTasks.length > 0) {
+          setTasks(parsedTasks);
+        }
+      }
+
+      if (storedProjects) {
+        const parsedProjects = JSON.parse(storedProjects);
+        if (Array.isArray(parsedProjects) && parsedProjects.length > 0) {
+          setProjects(parsedProjects);
+          setNewTaskProject(parsedProjects[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load workspace data from local storage.', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
+  }, [tasks]);
+
+  useEffect(() => {
+    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
+  }, [projects]);
+
+  const filteredTasks = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    if (!normalizedSearch) {
+      return tasks;
+    }
+
+    return tasks.filter((task) => {
+      return (
+        task.title.toLowerCase().includes(normalizedSearch) ||
+        task.project.toLowerCase().includes(normalizedSearch) ||
+        task.priority.toLowerCase().includes(normalizedSearch)
+      );
+    });
+  }, [searchQuery, tasks]);
+
+  const visibleTasks = showAllTasks ? filteredTasks : filteredTasks.slice(0, 4);
+  const unreadAlertsCount = alerts.filter((alert) => !alert.read).length;
+  const completedTasksCount = tasks.filter((task) => task.completed).length;
+  const pendingTasksCount = tasks.length - completedTasksCount;
+
+  const addProject = () => {
+    const trimmedProject = newProjectName.trim();
+
+    if (!trimmedProject) {
+      setProjectFormMessage('Project name cannot be empty.');
+      return;
+    }
+
+    const duplicate = projects.some(
+      (project) => project.toLowerCase() === trimmedProject.toLowerCase()
+    );
+
+    if (duplicate) {
+      setProjectFormMessage('That project already exists.');
+      return;
+    }
+
+    setProjects((currentProjects) => [...currentProjects, trimmedProject]);
+    setNewTaskProject(trimmedProject);
+    setNewProjectName('');
+    setProjectFormMessage('Project created. You can now assign tasks to it.');
+  };
+
+  const createTask = () => {
+    const trimmedTitle = newTaskTitle.trim();
+    if (!trimmedTitle) {
+      setTaskFormMessage('Please enter a task title.');
+      return;
+    }
+
+    const taskTime = new Date().toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+
+    const task = {
+      id: Date.now(),
+      title: trimmedTitle,
+      time: taskTime,
+      project: newTaskProject,
+      priority: newTaskPriority,
+      completed: false
+    };
+
+    setTasks((currentTasks) => [task, ...currentTasks]);
+    setTaskFormMessage('Task created successfully.');
+    setNewTaskTitle('');
+    setNewTaskPriority('Normal');
+    setShowAllTasks(true);
+
+    setAlerts((currentAlerts) => [
+      {
+        id: Date.now() + 1,
+        text: `New task added: ${trimmedTitle}`,
+        read: false
+      },
+      ...currentAlerts
+    ]);
+  };
+
+  const toggleTaskCompletion = (taskId) => {
+    setTasks((currentTasks) =>
+      currentTasks.flatMap((task) => {
+        if (task.id !== taskId) {
+          return [task];
+        }
+
+        const nextCompleted = !task.completed;
+        if (autoArchiveDone && nextCompleted) {
+          return [];
+        }
+
+        return [{
+          ...task,
+          completed: nextCompleted
+        }];
+      })
+    );
+  };
+
+  const removeTask = (taskId) => {
+    setTasks((currentTasks) => currentTasks.filter((task) => task.id !== taskId));
+  };
+
+  const markAllAlertsAsRead = () => {
+    setAlerts((currentAlerts) =>
+      currentAlerts.map((alert) => ({
+        ...alert,
+        read: true
+      }))
+    );
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setIsAlertsOpen(false);
+    setIsHelpOpen(false);
+    setIsSettingsOpen(false);
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+        <div className="w-full max-w-sm bg-white border border-slate-200 rounded-xl p-6 shadow-sm text-center">
+          <h2 className="text-xl font-semibold text-slate-900">You are logged out</h2>
+          <p className="text-sm text-slate-500 mt-2 mb-6">
+            Session has been closed successfully.
+          </p>
+          <button
+            type="button"
+            onClick={() => setIsLoggedIn(true)}
+            className="w-full bg-black text-white py-2.5 rounded-md text-sm font-medium hover:bg-slate-800 transition"
+          >
+            Sign Back In
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-800">
+    <div className={`flex h-screen ${highContrast ? 'bg-slate-200 text-slate-900' : 'bg-slate-50 text-slate-800'} font-sans`}>
       {/* Sidebar */}
       <div className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col justify-between hidden md:flex">
         <div>
@@ -45,9 +272,38 @@ function App() {
           </div>
           
           <div className="px-4 mt-6">
-             <button className="w-full bg-black text-white hover:bg-slate-800 transition rounded-md py-2.5 text-sm font-medium flex items-center justify-center">
+             <button
+               type="button"
+               onClick={() => {
+                 setIsProjectCreatorOpen((current) => !current);
+                 setProjectFormMessage('');
+               }}
+               className="w-full bg-black text-white hover:bg-slate-800 transition rounded-md py-2.5 text-sm font-medium flex items-center justify-center"
+             >
                <Plus className="w-4 h-4 mr-2" /> New Project
              </button>
+
+             {isProjectCreatorOpen && (
+               <div className="mt-3 bg-white border border-slate-200 rounded-md p-3 space-y-2">
+                 <input
+                   type="text"
+                   value={newProjectName}
+                   onChange={(event) => setNewProjectName(event.target.value)}
+                   placeholder="Project name"
+                   className="w-full text-sm py-2 px-3 rounded-md border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                 />
+                 <button
+                   type="button"
+                   onClick={addProject}
+                   className="w-full text-sm py-2 rounded-md bg-slate-900 text-white hover:bg-black transition"
+                 >
+                   Save Project
+                 </button>
+                 {projectFormMessage && (
+                   <p className="text-xs text-slate-500">{projectFormMessage}</p>
+                 )}
+               </div>
+             )}
           </div>
 
           <nav className="mt-8 space-y-1 px-3">
@@ -67,11 +323,19 @@ function App() {
         </div>
 
         <div className="p-4 space-y-1 mb-2">
-            <button className="w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors">
+            <button
+              type="button"
+              onClick={() => setIsHelpOpen((current) => !current)}
+              className="w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors"
+            >
               <HelpCircle className="w-4 h-4" />
               <span>Help</span>
             </button>
-            <button className="w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors"
+            >
               <LogOut className="w-4 h-4" />
               <span>Logout</span>
             </button>
@@ -82,12 +346,14 @@ function App() {
       <div className="flex-1 flex flex-col overflow-hidden bg-white rounded-tl-2xl border-t border-l border-slate-200">
         
         {/* Top Header */}
-        <header className="h-16 flex items-center justify-between px-8 border-b border-slate-100 shrink-0">
+        <header className="h-16 flex items-center justify-between px-8 border-b border-slate-100 shrink-0 relative">
           <div className="w-1/3">
              <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input 
                   type="text" 
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Search tasks, projects..." 
                   className="w-full bg-slate-50 border-none rounded-full py-1.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
                 />
@@ -97,11 +363,53 @@ function App() {
           <div className="font-bold text-lg tracking-tight">TasksBhuleJai</div>
 
           <div className="w-1/3 flex items-center justify-end space-x-4">
-             <button className="text-slate-400 hover:text-slate-600 relative">
+             <button
+               type="button"
+               onClick={() => {
+                 setIsAlertsOpen((current) => !current);
+                 setIsSettingsOpen(false);
+               }}
+               className="text-slate-400 hover:text-slate-600 relative"
+             >
                <Bell className="w-5 h-5" />
-               <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+               {unreadAlertsCount > 0 && (
+                 <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+               )}
              </button>
-             <button className="text-slate-400 hover:text-slate-600">
+
+             {isAlertsOpen && (
+               <div className="absolute top-16 right-24 w-72 bg-white border border-slate-200 rounded-lg shadow-md p-3 z-10">
+                 <div className="flex items-center justify-between mb-2">
+                   <p className="text-sm font-semibold text-slate-800">Notifications</p>
+                   <button
+                     type="button"
+                     onClick={markAllAlertsAsRead}
+                     className="text-xs text-slate-500 hover:text-slate-900"
+                   >
+                     Mark all read
+                   </button>
+                 </div>
+                 <div className="space-y-2 max-h-48 overflow-y-auto">
+                   {alerts.map((alert) => (
+                     <div
+                       key={alert.id}
+                       className={`text-xs rounded-md p-2 border ${alert.read ? 'bg-slate-50 border-slate-100 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-700 font-medium'}`}
+                     >
+                       {alert.text}
+                     </div>
+                   ))}
+                 </div>
+               </div>
+             )}
+
+             <button
+               type="button"
+               onClick={() => {
+                 setIsSettingsOpen((current) => !current);
+                 setIsAlertsOpen(false);
+               }}
+               className="text-slate-400 hover:text-slate-600"
+             >
                <Settings className="w-5 h-5" />
              </button>
              <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden border border-slate-300 ml-2">
@@ -112,6 +420,37 @@ function App() {
 
         {/* Scrollable Main Area */}
         <main className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
+
+          {isHelpOpen && (
+            <div className="max-w-6xl mx-auto mb-4 bg-white border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
+              <h4 className="font-semibold text-slate-800 mb-1">Help</h4>
+              <p>Use search to find tasks, click checkboxes to complete items, and use the form to create new tasks.</p>
+            </div>
+          )}
+
+          {isSettingsOpen && (
+            <div className="max-w-6xl mx-auto mb-4 bg-white border border-slate-200 rounded-xl p-4">
+              <h4 className="text-sm font-semibold text-slate-800 mb-3">Settings</h4>
+              <div className="space-y-2 text-sm">
+                <label className="flex items-center justify-between">
+                  <span className="text-slate-600">Auto archive completed tasks</span>
+                  <input
+                    type="checkbox"
+                    checked={autoArchiveDone}
+                    onChange={(event) => setAutoArchiveDone(event.target.checked)}
+                  />
+                </label>
+                <label className="flex items-center justify-between">
+                  <span className="text-slate-600">High contrast mode</span>
+                  <input
+                    type="checkbox"
+                    checked={highContrast}
+                    onChange={(event) => setHighContrast(event.target.checked)}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
           
           {activeTab === 'Dashboard' && (
             <div className="max-w-6xl mx-auto">
@@ -144,32 +483,63 @@ function App() {
                    <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
                       <div className="flex justify-between items-center mb-4">
                         <h3 className="font-semibold text-slate-800">Today</h3>
-                        <button className="text-sm text-slate-500 hover:text-slate-900">View All</button>
+                        <button
+                          type="button"
+                          onClick={() => setShowAllTasks((current) => !current)}
+                          className="text-sm text-slate-500 hover:text-slate-900"
+                        >
+                          {showAllTasks ? 'Show Less' : 'View All'}
+                        </button>
+                      </div>
+
+                      <div className="mb-3 text-xs text-slate-500 flex items-center justify-between">
+                        <span>{pendingTasksCount} pending</span>
+                        <span>{completedTasksCount} completed</span>
                       </div>
                       
                       <div className="space-y-3">
-                         {todayTasks.map((task, i) => (
-                           <div key={i} className="flex items-start justify-between group p-2 -mx-2 hover:bg-slate-50 rounded-lg transition-colors">
+                         {visibleTasks.map((task) => (
+                           <div key={task.id} className="flex items-start justify-between group p-2 -mx-2 hover:bg-slate-50 rounded-lg transition-colors">
                               <div className="flex items-start space-x-3">
-                                 <button className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded flex items-center justify-center border ${task.checked ? 'bg-slate-500 border-slate-500' : 'border-slate-300 group-hover:border-slate-400'}`}>
-                                    {task.checked && <Check className="w-3.5 h-3.5 text-white" />}
+                                 <button
+                                    type="button"
+                                    onClick={() => toggleTaskCompletion(task.id)}
+                                    className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded flex items-center justify-center border ${task.completed ? 'bg-slate-500 border-slate-500' : 'border-slate-300 group-hover:border-slate-400'}`}
+                                 >
+                                    {task.completed && <Check className="w-3.5 h-3.5 text-white" />}
                                  </button>
                                  <div>
-                                   <p className={`text-sm font-medium ${task.checked ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{task.title}</p>
-                                   {!task.checked ? (
-                                     <p className="text-xs text-slate-400 mt-1">Due at {task.time} &bull; {task.project}</p>
+                                   <p className={`text-sm font-medium ${task.completed ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{task.title}</p>
+                                   {!task.completed ? (
+                                     <p className="text-xs text-slate-400 mt-1 flex items-center">
+                                       <Clock className="w-3 h-3 mr-1" />
+                                       Due at {task.time} &bull; {task.project}
+                                     </p>
                                    ) : (
                                      <p className="text-xs text-slate-400 mt-1">Completed at {task.time}</p>
                                    )}
                                  </div>
                               </div>
-                              {task.priority && (
-                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${task.color}`}>
+
+                              <div className="flex items-center space-x-2">
+                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${getPriorityTone(task.priority)}`}>
                                   {task.priority}
                                 </span>
-                              )}
+                                <button
+                                  type="button"
+                                  onClick={() => removeTask(task.id)}
+                                  className="text-slate-400 hover:text-slate-600"
+                                  aria-label="Remove task"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </button>
+                              </div>
                            </div>
                          ))}
+
+                         {visibleTasks.length === 0 && (
+                           <p className="text-sm text-slate-400 py-2">No tasks match your search yet.</p>
+                         )}
                       </div>
                    </div>
                 </div>
@@ -207,21 +577,42 @@ function App() {
                    <div className="bg-slate-50 p-6 rounded-xl border border-slate-200/60 shadow-inner">
                       <h3 className="font-semibold text-slate-800 mb-4">Add New Task</h3>
                       <div className="space-y-3">
-                         <input type="text" placeholder="What needs to be done?" className="w-full text-sm py-2 px-3 rounded-md border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-200" />
                          <div className="flex space-x-2">
-                            <select className="flex-1 text-sm py-2 px-2 rounded-md border border-slate-200 bg-white text-slate-600 focus:outline-none">
-                              <option>Select Project</option>
-                              <option>Marketing</option>
-                              <option>Design</option>
+                            <select
+                              value={newTaskProject}
+                              onChange={(event) => setNewTaskProject(event.target.value)}
+                              className="flex-1 text-sm py-2 px-2 rounded-md border border-slate-200 bg-white text-slate-600 focus:outline-none"
+                            >
+                              {projects.map((project) => (
+                                <option key={project}>{project}</option>
+                              ))}
                             </select>
-                            <select className="w-24 text-sm py-2 px-2 rounded-md border border-slate-200 bg-white text-slate-600 focus:outline-none">
+                            <select
+                              value={newTaskPriority}
+                              onChange={(event) => setNewTaskPriority(event.target.value)}
+                              className="w-24 text-sm py-2 px-2 rounded-md border border-slate-200 bg-white text-slate-600 focus:outline-none"
+                            >
                               <option>Normal</option>
                               <option>High</option>
                             </select>
                          </div>
-                         <button className="w-full bg-black text-white font-medium text-sm py-2.5 rounded-md flex items-center justify-center hover:bg-slate-800 transition">
+                         <input
+                           type="text"
+                           value={newTaskTitle}
+                           onChange={(event) => setNewTaskTitle(event.target.value)}
+                           placeholder="Add task details"
+                           className="w-full text-sm py-2 px-3 rounded-md border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                         />
+                         <button
+                           type="button"
+                           onClick={createTask}
+                           className="w-full bg-black text-white font-medium text-sm py-2.5 rounded-md flex items-center justify-center hover:bg-slate-800 transition"
+                         >
                             <Plus className="w-4 h-4 mr-2" /> Create Task
                          </button>
+                         {taskFormMessage && (
+                           <p className="text-xs text-slate-500">{taskFormMessage}</p>
+                         )}
                       </div>
                    </div>
                 </div>
@@ -235,6 +626,13 @@ function App() {
                <Folder className="w-12 h-12 mb-4 opacity-20" />
                <p className="text-lg font-medium">{activeTab} view selected.</p>
                <p className="text-sm">Implement other views based on the provided screenshots.</p>
+               <button
+                 type="button"
+                 onClick={() => setActiveTab('Dashboard')}
+                 className="mt-4 px-4 py-2 rounded-md border border-slate-300 text-sm text-slate-600 hover:text-slate-900 hover:border-slate-400 transition"
+               >
+                 Return To Dashboard
+               </button>
              </div>
           )}
 
